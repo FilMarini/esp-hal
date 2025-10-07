@@ -15,6 +15,9 @@ use esp_radio::ble::controller::BleConnector;
 use log::{info, warn};
 use static_cell::StaticCell;
 use trouble_host::prelude::*;
+use core::time::Duration;
+use embassy_time::Instant;
+use bytemuck::{bytes_of, cast};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -48,9 +51,36 @@ const CONNECTIONS_MAX: usize = 1;
 const L2CAP_CHANNELS_MAX: usize = 2; // Signal + att
 
 // GATT Server definition
+//#[gatt_server]
+//struct Server {
+//    battery_service: UartService,
+//}
+// GATT Server definition
 #[gatt_server]
 struct Server {
-    battery_service: BatteryService,
+    progressor_service: ProgressorService,
+}
+
+#[gatt_service(uuid = "7e4e1701-1ea6-40c9-9dcc-13d34ffead57")]
+struct ProgressorService {
+    /// Data Point (Notify)
+    #[characteristic(
+        uuid = "7e4e1702-1ea6-40c9-9dcc-13d34ffead57",
+        notify,
+        read,
+        value = [0; 10] // dummy initial value
+    )]
+    data_point: [u8; 10],
+
+    /// Control Point (Write / Write Without Response)
+    #[characteristic(
+        uuid = "7e4e1703-1ea6-40c9-9dcc-13d34ffead57",
+        write,
+        write_without_response,
+        read,
+        value = [0]
+    )]
+    control_point: [u8; 1],
 }
 
 /// Battery service
@@ -61,8 +91,21 @@ struct BatteryService {
     #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, name = "hello", read, value = "Battery Level")]
     #[characteristic(uuid = characteristic::BATTERY_LEVEL, read, notify, value = 10)]
     level: u8,
-    #[characteristic(uuid = "408813df-5dd4-1f87-ec11-cdb001100000", write, read, notify)]
+    #[characteristic(uuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E", write, read, notify)]
     status: bool,
+}
+
+#[gatt_service(uuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")]
+struct UartService {
+    /// UART TX characteristic
+    #[descriptor(uuid = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E", read)]
+    #[characteristic(uuid = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E", read, notify, value = 0)]
+    tx: u8,  // or a suitable type for TX data
+
+    /// UART RX characteristic
+    #[descriptor(uuid = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")]
+    #[characteristic(uuid = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E", write, value = 0)]
+    rx: u8,  // or a suitable type for RX data
 }
 
 /// Run the BLE stack.
@@ -93,7 +136,7 @@ where
 
     let _ = join(ble_task(runner), async {
         loop {
-            match advertise("Trouble Example", &mut peripheral, &server).await {
+            match advertise("Progressor_1234", &mut peripheral, &server).await {
                 Ok(conn) => {
                     // set up tasks when the connection is established to a central, so they don't
                     // run when no one is connected.
@@ -140,45 +183,87 @@ async fn ble_task<C: Controller, P: PacketPool>(mut runner: Runner<'_, C, P>) {
 ///
 /// This function will handle the GATT events and process them.
 /// This is how we interact with read and write requests.
+//async fn gatt_events_task<P: PacketPool>(
+//    server: &Server<'_>,
+//    conn: &GattConnection<'_, '_, P>,
+//) -> Result<(), Error> {
+//    let level = server.battery_service.tx;
+//    let reason = loop {
+//        match conn.next().await {
+//            GattConnectionEvent::Disconnected { reason } => break reason,
+//            GattConnectionEvent::Gatt { event } => {
+//                match &event {
+//                    GattEvent::Write(event) => {
+//                       if event.handle() == level.handle {
+//                            info!(
+//                                "[gatt] Write Event to Level Characteristic: {:?}",
+//                                event.data()
+//                            );
+//                        }
+//                    }
+//                    _ => {}
+ //               };
+ //               // This step is also performed at drop(), but writing it explicitly is necessary
+//                // in order to ensure reply is sent.
+//                match event.accept() {
+//                    Ok(reply) => reply.send().await,
+//                    Err(e) => warn!("[gatt] error sending response: {:?}", e),
+//                };
+//            }
+//            _ => {} // ignore other Gatt Connection Events
+//        }
+//    };
+//    info!("[gatt] disconnected: {:?}", reason);
+//    Ok(())
+//}
+
 async fn gatt_events_task<P: PacketPool>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
 ) -> Result<(), Error> {
-    let level = server.battery_service.level;
+    let data_point = server.progressor_service.data_point;
+    let control_point = server.progressor_service.control_point;
+
     let reason = loop {
         match conn.next().await {
             GattConnectionEvent::Disconnected { reason } => break reason,
             GattConnectionEvent::Gatt { event } => {
                 match &event {
-                    GattEvent::Read(event) => {
-                        if event.handle() == level.handle {
-                            let value = server.get(&level);
-                            info!("[gatt] Read Event to Level Characteristic: {:?}", value);
+                    GattEvent::Write(e) if e.handle() == control_point.handle => {
+                        let data = e.data();
+                        log::info!("[gatt] Control Point Write: {:?}", data);
+
+                        if data.len() == 1 && data[0] == 112 {
+                            // Build TLV response with opcode 0, length 1, value 42
+                            let response_small = [0u8, 1u8, 42u8];
+                            let mut response_buf = [0u8; 10];          // characteristic-sized buffer
+                            response_buf[..response_small.len()].copy_from_slice(&response_small);
+                            log::info!("[gatt] Sending response: {:?}", response_small);
+
+                            if data_point.notify(conn, &response_buf).await.is_err() {
+                                log::warn!("[gatt] Failed to notify data point");
+                            }
                         }
                     }
-                    GattEvent::Write(event) => {
-                        if event.handle() == level.handle {
-                            info!(
-                                "[gatt] Write Event to Level Characteristic: {:?}",
-                                event.data()
-                            );
-                        }
+                    GattEvent::Read(e) if e.handle() == data_point.handle => {
+                        let value = server.get(&data_point);
+                        log::info!("[gatt] Data Point Read: {:?}", value);
                     }
                     _ => {}
-                };
-                // This step is also performed at drop(), but writing it explicitly is necessary
-                // in order to ensure reply is sent.
-                match event.accept() {
-                    Ok(reply) => reply.send().await,
-                    Err(e) => warn!("[gatt] error sending response: {:?}", e),
-                };
+                }
+
+                if let Ok(reply) = event.accept() {
+                    reply.send().await;
+                }
             }
-            _ => {} // ignore other Gatt Connection Events
+            _ => {}
         }
     };
-    info!("[gatt] disconnected: {:?}", reason);
+
+    log::info!("[gatt] disconnected: {:?}", reason);
     Ok(())
 }
+
 
 /// Create an advertiser to use to connect to a BLE Central, and wait for it to connect.
 async fn advertise<'values, 'server, C: Controller>(
@@ -214,27 +299,88 @@ async fn advertise<'values, 'server, C: Controller>(
 /// This task will notify the connected central of a counter value every 2 seconds.
 /// It will also read the RSSI value every 2 seconds.
 /// and will stop when the connection is closed by the central or an error occurs.
+//async fn custom_task<C: Controller, P: PacketPool>(
+//    server: &Server<'_>,
+//    conn: &GattConnection<'_, '_, P>,
+//    stack: &Stack<'_, C, P>,
+//) {
+//    let mut tick: u8 = 0;
+//    let level = server.battery_service.tx;
+//    loop {
+//        //tick = tick.wrapping_add(1);
+//        tick = b'C';
+//        info!("[custom_task] notifying connection of tick {}", tick);
+//        if level.notify(conn, &tick).await.is_err() {
+//            info!("[custom_task] error notifying connection");
+//            break;
+//        };
+//        // read RSSI (Received Signal Strength Indicator) of the connection.
+//        if let Ok(rssi) = conn.raw().rssi(stack).await {
+//            info!("[custom_task] RSSI: {:?}", rssi);
+ //       } else {
+//            info!("[custom_task] error getting RSSI");
+//            break;
+//        };
+//        Timer::after_millis(100).await;
+//    }
+//}
+//async fn custom_task<C: Controller, P: PacketPool>(
+//    server: &Server<'_>,
+//    conn: &GattConnection<'_, '_, P>,
+//    _stack: &Stack<'_, C, P>,
+//) {
+//    let mut tick = [0; 3];
+//    let data_point = server.progressor_service.data_point;
+//
+//    loop {
+//        tick = [0; 3];
+//        if data_point.notify(conn, &tick).await.is_err() {
+//            log::info!("[custom_task] notify failed");
+//            break;
+//        }
+//        Timer::after_secs(1).await;
+//    }
+//}
+
 async fn custom_task<C: Controller, P: PacketPool>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
-    stack: &Stack<'_, C, P>,
+    _stack: &Stack<'_, C, P>,
 ) {
-    let mut tick: u8 = 0;
-    let level = server.battery_service.level;
+    let data_point = server.progressor_service.data_point;
+    let start = Instant::now();
+    let mut weight: f32 = 0.0;
+
     loop {
-        tick = tick.wrapping_add(1);
-        info!("[custom_task] notifying connection of tick {}", tick);
-        if level.notify(conn, &tick).await.is_err() {
-            info!("[custom_task] error notifying connection");
+        // Simulate weight measurement (you could also read from a sensor here)
+        weight += 0.5;
+        if weight > 50.0 {
+            weight = 0.0;
+        }
+
+        // Calculate timestamp (microseconds since connection started)
+        let timestamp_us: u32 = start.elapsed().as_micros() as u32;
+
+        // Build response payload
+        // [0x01][0x08][weight(float32)][timestamp(uint32)]
+        let mut packet = [0u8; 10];
+        packet[0] = 0x01; // response code
+        packet[1] = 0x08; // length (4 bytes weight + 4 bytes timestamp)
+        packet[2..6].copy_from_slice(bytes_of(&weight));
+        packet[6..10].copy_from_slice(bytes_of(&timestamp_us));
+
+        log::info!(
+            "[custom_task] sending weight={} timestamp={}us packet={:x?}",
+            weight,
+            timestamp_us,
+            &packet
+        );
+
+        if data_point.notify(conn, &packet).await.is_err() {
+            log::warn!("[custom_task] notify failed - connection probably closed");
             break;
-        };
-        // read RSSI (Received Signal Strength Indicator) of the connection.
-        if let Ok(rssi) = conn.raw().rssi(stack).await {
-            info!("[custom_task] RSSI: {:?}", rssi);
-        } else {
-            info!("[custom_task] error getting RSSI");
-            break;
-        };
-        Timer::after_secs(2).await;
+        }
+
+        embassy_time::Timer::after_millis(100).await;
     }
 }
