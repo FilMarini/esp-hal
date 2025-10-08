@@ -3,6 +3,8 @@
 #![no_std]
 #![no_main]
 
+mod datapoint;
+
 use embassy_executor::Spawner;
 use embassy_futures::{join::join, select::select};
 use embassy_time::Timer;
@@ -18,6 +20,7 @@ use trouble_host::prelude::*;
 use core::time::Duration;
 use embassy_time::Instant;
 use bytemuck::{bytes_of, cast};
+use crate::datapoint::{DataPoint, DATA_PAYLOAD_SIZE};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -51,11 +54,6 @@ const CONNECTIONS_MAX: usize = 1;
 const L2CAP_CHANNELS_MAX: usize = 2; // Signal + att
 
 // GATT Server definition
-//#[gatt_server]
-//struct Server {
-//    battery_service: UartService,
-//}
-// GATT Server definition
 #[gatt_server]
 struct Server {
     progressor_service: ProgressorService,
@@ -67,10 +65,9 @@ struct ProgressorService {
     #[characteristic(
         uuid = "7e4e1702-1ea6-40c9-9dcc-13d34ffead57",
         notify,
-        read,
-        value = [0; 10] // dummy initial value
+        value = [0; DATA_PAYLOAD_SIZE+2]
     )]
-    data_point: [u8; 10],
+    data_point: [u8; DATA_PAYLOAD_SIZE+2],
 
     /// Control Point (Write / Write Without Response)
     #[characteristic(
@@ -235,12 +232,11 @@ async fn gatt_events_task<P: PacketPool>(
 
                         if data.len() == 1 && data[0] == 112 {
                             // Build TLV response with opcode 0, length 1, value 42
-                            let response_small = [0u8, 1u8, 42u8];
-                            let mut response_buf = [0u8; 10];          // characteristic-sized buffer
-                            response_buf[..response_small.len()].copy_from_slice(&response_small);
-                            log::info!("[gatt] Sending response: {:?}", response_small);
+                            let response = DataPoint::from_parts(0u8, 1u8, &42u8);
+                            let response_bytes = response.to_bytes();
+                            log::info!("[gatt] Sending response: {:?}", response_bytes);
 
-                            if data_point.notify(conn, &response_buf).await.is_err() {
+                            if data_point.notify(conn, &response_bytes).await.is_err() {
                                 log::warn!("[gatt] Failed to notify data point");
                             }
                         }
@@ -363,20 +359,17 @@ async fn custom_task<C: Controller, P: PacketPool>(
 
         // Build response payload
         // [0x01][0x08][weight(float32)][timestamp(uint32)]
-        let mut packet = [0u8; 10];
-        packet[0] = 0x01; // response code
-        packet[1] = 0x08; // length (4 bytes weight + 4 bytes timestamp)
-        packet[2..6].copy_from_slice(bytes_of(&weight));
-        packet[6..10].copy_from_slice(bytes_of(&timestamp_us));
+        let packet = DataPoint::weight_from_parts(0x01, 0x08, weight, timestamp_us);
+        let packet_bytes = packet.to_bytes();
 
         log::info!(
             "[custom_task] sending weight={} timestamp={}us packet={:x?}",
             weight,
             timestamp_us,
-            &packet
+            &packet_bytes
         );
 
-        if data_point.notify(conn, &packet).await.is_err() {
+        if data_point.notify(conn, &packet_bytes).await.is_err() {
             log::warn!("[custom_task] notify failed - connection probably closed");
             break;
         }
