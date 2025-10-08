@@ -80,31 +80,6 @@ struct ProgressorService {
     control_point: [u8; 1],
 }
 
-/// Battery service
-#[gatt_service(uuid = service::BATTERY)]
-struct BatteryService {
-    /// Battery Level
-    #[descriptor(uuid = descriptors::VALID_RANGE, read, value = [0, 100])]
-    #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, name = "hello", read, value = "Battery Level")]
-    #[characteristic(uuid = characteristic::BATTERY_LEVEL, read, notify, value = 10)]
-    level: u8,
-    #[characteristic(uuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E", write, read, notify)]
-    status: bool,
-}
-
-#[gatt_service(uuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")]
-struct UartService {
-    /// UART TX characteristic
-    #[descriptor(uuid = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E", read)]
-    #[characteristic(uuid = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E", read, notify, value = 0)]
-    tx: u8,  // or a suitable type for TX data
-
-    /// UART RX characteristic
-    #[descriptor(uuid = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")]
-    #[characteristic(uuid = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E", write, value = 0)]
-    rx: u8,  // or a suitable type for RX data
-}
-
 /// Run the BLE stack.
 pub async fn ble_bas_peripheral_run<C>(controller: C)
 where
@@ -180,40 +155,6 @@ async fn ble_task<C: Controller, P: PacketPool>(mut runner: Runner<'_, C, P>) {
 ///
 /// This function will handle the GATT events and process them.
 /// This is how we interact with read and write requests.
-//async fn gatt_events_task<P: PacketPool>(
-//    server: &Server<'_>,
-//    conn: &GattConnection<'_, '_, P>,
-//) -> Result<(), Error> {
-//    let level = server.battery_service.tx;
-//    let reason = loop {
-//        match conn.next().await {
-//            GattConnectionEvent::Disconnected { reason } => break reason,
-//            GattConnectionEvent::Gatt { event } => {
-//                match &event {
-//                    GattEvent::Write(event) => {
-//                       if event.handle() == level.handle {
-//                            info!(
-//                                "[gatt] Write Event to Level Characteristic: {:?}",
-//                                event.data()
-//                            );
-//                        }
-//                    }
-//                    _ => {}
- //               };
- //               // This step is also performed at drop(), but writing it explicitly is necessary
-//                // in order to ensure reply is sent.
-//                match event.accept() {
-//                    Ok(reply) => reply.send().await,
-//                    Err(e) => warn!("[gatt] error sending response: {:?}", e),
-//                };
-//            }
-//            _ => {} // ignore other Gatt Connection Events
-//        }
-//    };
-//    info!("[gatt] disconnected: {:?}", reason);
-//    Ok(())
-//}
-
 async fn gatt_events_task<P: PacketPool>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
@@ -233,10 +174,9 @@ async fn gatt_events_task<P: PacketPool>(
                         if data.len() == 1 && data[0] == 112 {
                             // Build TLV response with opcode 0, length 1, value 42
                             let response = DataPoint::from_parts(0u8, 1u8, &42u8);
-                            let response_bytes = response.to_bytes();
-                            log::info!("[gatt] Sending response: {:?}", response_bytes);
+                            log::info!("[gatt] Sending response: {:?}", response.to_bytes());
 
-                            if data_point.notify(conn, &response_bytes).await.is_err() {
+                            if data_point.notify(conn, &response.to_bytes()).await.is_err() {
                                 log::warn!("[gatt] Failed to notify data point");
                             }
                         }
@@ -295,49 +235,6 @@ async fn advertise<'values, 'server, C: Controller>(
 /// This task will notify the connected central of a counter value every 2 seconds.
 /// It will also read the RSSI value every 2 seconds.
 /// and will stop when the connection is closed by the central or an error occurs.
-//async fn custom_task<C: Controller, P: PacketPool>(
-//    server: &Server<'_>,
-//    conn: &GattConnection<'_, '_, P>,
-//    stack: &Stack<'_, C, P>,
-//) {
-//    let mut tick: u8 = 0;
-//    let level = server.battery_service.tx;
-//    loop {
-//        //tick = tick.wrapping_add(1);
-//        tick = b'C';
-//        info!("[custom_task] notifying connection of tick {}", tick);
-//        if level.notify(conn, &tick).await.is_err() {
-//            info!("[custom_task] error notifying connection");
-//            break;
-//        };
-//        // read RSSI (Received Signal Strength Indicator) of the connection.
-//        if let Ok(rssi) = conn.raw().rssi(stack).await {
-//            info!("[custom_task] RSSI: {:?}", rssi);
- //       } else {
-//            info!("[custom_task] error getting RSSI");
-//            break;
-//        };
-//        Timer::after_millis(100).await;
-//    }
-//}
-//async fn custom_task<C: Controller, P: PacketPool>(
-//    server: &Server<'_>,
-//    conn: &GattConnection<'_, '_, P>,
-//    _stack: &Stack<'_, C, P>,
-//) {
-//    let mut tick = [0; 3];
-//    let data_point = server.progressor_service.data_point;
-//
-//    loop {
-//        tick = [0; 3];
-//        if data_point.notify(conn, &tick).await.is_err() {
-//            log::info!("[custom_task] notify failed");
-//            break;
-//        }
-//        Timer::after_secs(1).await;
-//    }
-//}
-
 async fn custom_task<C: Controller, P: PacketPool>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
@@ -360,16 +257,16 @@ async fn custom_task<C: Controller, P: PacketPool>(
         // Build response payload
         // [0x01][0x08][weight(float32)][timestamp(uint32)]
         let packet = DataPoint::weight_from_parts(0x01, 0x08, weight, timestamp_us);
-        let packet_bytes = packet.to_bytes();
+        //let packet = packet.to_bytes();
 
         log::info!(
             "[custom_task] sending weight={} timestamp={}us packet={:x?}",
             weight,
             timestamp_us,
-            &packet_bytes
+            &packet.to_bytes()
         );
 
-        if data_point.notify(conn, &packet_bytes).await.is_err() {
+        if data_point.notify(conn, &packet.to_bytes()).await.is_err() {
             log::warn!("[custom_task] notify failed - connection probably closed");
             break;
         }
