@@ -20,7 +20,7 @@ use trouble_host::prelude::*;
 use core::time::Duration;
 use embassy_time::Instant;
 use bytemuck::{bytes_of, cast};
-use crate::datapoint::{DataPoint, DATA_PAYLOAD_SIZE};
+use crate::datapoint::{DataPoint, DataOpcode, ControlOpcode, DATA_PAYLOAD_SIZE};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -170,15 +170,15 @@ async fn gatt_events_task<P: PacketPool>(
                     GattEvent::Write(e) if e.handle() == control_point.handle => {
                         let data = e.data();
                         log::info!("[gatt] Control Point Write: {:?}", data);
-
-                        if data.len() == 1 && data[0] == 112 {
-                            // Build TLV response with opcode 0, length 1, value 42
-                            let response = DataPoint::from_parts(0u8, 1u8, &42u8);
-                            log::info!("[gatt] Sending response: {:?}", response.to_bytes());
-
-                            if data_point.notify(conn, &response.to_bytes()).await.is_err() {
-                                log::warn!("[gatt] Failed to notify data point");
+                        match ControlOpcode::from_bytes(&data){
+                            ControlOpcode::GetProgressorID => {
+                                let response = DataOpcode::ProgressorId(42u8);
+                                log::info!("[gatt] Sending response: {:?}", response.to_bytes());
+                                if data_point.notify(conn, &response.to_bytes()).await.is_err() {
+                                    log::warn!("[gatt] Failed to notify data point");
+                                }
                             }
+                            other => log::info!("[gatt] Received other command")
                         }
                     }
                     GattEvent::Read(e) if e.handle() == data_point.handle => {
@@ -256,7 +256,8 @@ async fn custom_task<C: Controller, P: PacketPool>(
 
         // Build response payload
         // [0x01][0x08][weight(float32)][timestamp(uint32)]
-        let packet = DataPoint::weight_from_parts(0x01, 0x08, weight, timestamp_us);
+        //let packet = DataPoint::weight_from_parts(0x01, 0x08, weight, timestamp_us);
+        let packet = DataOpcode::Weight(weight, timestamp_us);
         //let packet = packet.to_bytes();
 
         log::info!(
