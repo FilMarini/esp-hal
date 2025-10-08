@@ -20,9 +20,20 @@ use trouble_host::prelude::*;
 use core::time::Duration;
 use embassy_time::Instant;
 use bytemuck::{bytes_of, cast};
-use crate::datapoint::{DataPoint, DataOpcode, ControlOpcode, DATA_PAYLOAD_SIZE};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use core::sync::atomic::{AtomicBool, Ordering};
+use crate::datapoint::{DataOpcode, ControlOpcode, DATA_PAYLOAD_SIZE};
+
 
 esp_bootloader_esp_idf::esp_app_desc!();
+
+#[derive(Copy, Clone, Debug)]
+enum MeasurementCommand {
+    Start,
+    Stop,
+}
+
+static MEASUREMENT_CMD: Signal<CriticalSectionRawMutex, MeasurementCommand> = Signal::new();
 
 #[esp_rtos::main]
 async fn main(_s: Spawner) {
@@ -178,6 +189,14 @@ async fn gatt_events_task<P: PacketPool>(
                                     log::warn!("[gatt] Failed to notify data point");
                                 }
                             }
+                            ControlOpcode::StartMeasurement => {
+                                log::info!("[gatt] StartMeasurements received");
+                                MEASUREMENT_CMD.signal(MeasurementCommand::Start);
+                            }
+                            ControlOpcode::StopMeasurement => {
+                                log::info!("[gatt] StopMeasurements received");
+                                MEASUREMENT_CMD.signal(MeasurementCommand::Stop);
+                            }
                             other => log::info!("[gatt] Received other command")
                         }
                     }
@@ -241,37 +260,45 @@ async fn custom_task<C: Controller, P: PacketPool>(
     _stack: &Stack<'_, C, P>,
 ) {
     let data_point = server.progressor_service.data_point;
-    let start = Instant::now();
-    let mut weight: f32 = 0.0;
 
     loop {
-        // Simulate weight measurement (you could also read from a sensor here)
-        weight += 0.5;
-        if weight > 50.0 {
-            weight = 0.0;
+        // Wait for a command
+        match MEASUREMENT_CMD.wait().await {
+            MeasurementCommand::Start => {
+                log::info!("[custom_task] Measurement started");
+                let start = embassy_time::Instant::now();
+                let mut weight: f32 = 0.0;
+
+                // Measurement loop
+                loop {
+                    // Non-blocking check if a stop command arrived
+                    if let Some(MeasurementCommand::Stop) = MEASUREMENT_CMD.try_take() {
+                        log::info!("[custom_task] Measurement stopped");
+                        break;
+                    }
+
+                    weight += 0.5;
+                    if weight > 50.0 {
+                        weight = 0.0;
+                    }
+
+                    let timestamp_us: u32 = start.elapsed().as_micros() as u32;
+                    let packet = DataOpcode::Weight(weight, timestamp_us);
+
+                    if data_point.notify(conn, &packet.to_bytes()).await.is_err() {
+                        log::warn!("[custom_task] notify failed - connection probably closed");
+                        break;
+                    }
+
+                    embassy_time::Timer::after_millis(100).await;
+                }
+            }
+
+            MeasurementCommand::Stop => {
+                // If Stop is received while not running, just ignore it
+                log::info!("[custom_task] Stop command received (no active measurement)");
+            }
         }
-
-        // Calculate timestamp (microseconds since connection started)
-        let timestamp_us: u32 = start.elapsed().as_micros() as u32;
-
-        // Build response payload
-        // [0x01][0x08][weight(float32)][timestamp(uint32)]
-        //let packet = DataPoint::weight_from_parts(0x01, 0x08, weight, timestamp_us);
-        let packet = DataOpcode::Weight(weight, timestamp_us);
-        //let packet = packet.to_bytes();
-
-        log::info!(
-            "[custom_task] sending weight={} timestamp={}us packet={:x?}",
-            weight,
-            timestamp_us,
-            &packet.to_bytes()
-        );
-
-        if data_point.notify(conn, &packet.to_bytes()).await.is_err() {
-            log::warn!("[custom_task] notify failed - connection probably closed");
-            break;
-        }
-
-        embassy_time::Timer::after_millis(100).await;
     }
 }
+

@@ -95,8 +95,8 @@ impl ControlOpcode {
 
         match data[0] {
             0x00 => ControlOpcode::Tare,
-            0x01 => ControlOpcode::StartMeasurement,
-            0x02 => ControlOpcode::StopMeasurement,
+            0x65 => ControlOpcode::StartMeasurement,
+            0x66 => ControlOpcode::StopMeasurement,
             0x03 => ControlOpcode::StartPeakRfdMeasurement,
             0x04 => ControlOpcode::StartPeakRfdMeasurementSeries,
             0x05 => ControlOpcode::GetAppVersion,
@@ -104,7 +104,7 @@ impl ControlOpcode {
             0x07 => ControlOpcode::ClearErrorInfo,
             0x08 => ControlOpcode::Shutdown,
             0x09 => ControlOpcode::SampleBattery,
-            0x0A => ControlOpcode::GetProgressorID,
+            0x70 => ControlOpcode::GetProgressorID,
             other => ControlOpcode::Unknown(other),
         }
     }
