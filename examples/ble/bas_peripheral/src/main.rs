@@ -22,6 +22,11 @@ use embassy_time::Instant;
 use bytemuck::{bytes_of, cast};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use core::sync::atomic::{AtomicBool, Ordering};
+use esp_hal::{
+    delay::Delay,
+    gpio::{Input, Level, Output, Pull, InputConfig, OutputConfig},
+};
+use loadcell::{hx711, LoadCell};
 use crate::datapoint::{DataOpcode, ControlOpcode, DATA_PAYLOAD_SIZE};
 
 
@@ -56,7 +61,17 @@ async fn main(_s: Spawner) {
     let connector = BleConnector::new(radio, bluetooth, Default::default()).unwrap();
     let controller: ExternalController<_, 20> = ExternalController::new(connector);
 
-    ble_bas_peripheral_run(controller).await;
+    let hx711_sck = Output::new(peripherals.GPIO5, Level::Low, OutputConfig::default());
+    let hx711_dt = Input::new(peripherals.GPIO6, InputConfig::default());
+
+    let mut delay = Delay::new();
+
+    // create the load sensor
+    let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
+    load_sensor.tare(16);
+    load_sensor.set_scale(0.10);
+
+    ble_bas_peripheral_run(controller, &mut load_sensor).await;
 }
 
 /// Max number of connections
@@ -92,9 +107,11 @@ struct ProgressorService {
 }
 
 /// Run the BLE stack.
-pub async fn ble_bas_peripheral_run<C>(controller: C)
+pub async fn ble_bas_peripheral_run<C, SckPin, DTPin>(controller: C, mut load_cell: &mut hx711::HX711<SckPin, DTPin, Delay>)
 where
     C: Controller,
+    SckPin: embedded_hal::digital::OutputPin,
+    DTPin: embedded_hal::digital::InputPin,
 {
     // Using a fixed "random" address can be useful for testing. In real scenarios, one would
     // use e.g. the MAC 6 byte array as the address (how to get that varies by the platform).
@@ -124,7 +141,7 @@ where
                     // set up tasks when the connection is established to a central, so they don't
                     // run when no one is connected.
                     let a = gatt_events_task(&server, &conn);
-                    let b = custom_task(&server, &conn, &stack);
+                    let b = custom_task(&server, &conn, &stack, &mut load_cell);
                     // run until any task ends (usually because the connection has been closed),
                     // then return to advertising state.
                     select(a, b).await;
@@ -254,11 +271,18 @@ async fn advertise<'values, 'server, C: Controller>(
 /// This task will notify the connected central of a counter value every 2 seconds.
 /// It will also read the RSSI value every 2 seconds.
 /// and will stop when the connection is closed by the central or an error occurs.
-async fn custom_task<C: Controller, P: PacketPool>(
+async fn custom_task<C, P, SckPin, DTPin>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
     _stack: &Stack<'_, C, P>,
-) {
+    load_cell: &mut hx711::HX711<SckPin, DTPin, Delay>,
+)
+where
+    C: Controller,
+    P: PacketPool,
+    SckPin: embedded_hal::digital::OutputPin,
+    DTPin: embedded_hal::digital::InputPin,
+{
     let data_point = server.progressor_service.data_point;
 
     loop {
@@ -276,10 +300,12 @@ async fn custom_task<C: Controller, P: PacketPool>(
                         log::info!("[custom_task] Measurement stopped");
                         break;
                     }
-
-                    weight += 0.5;
-                    if weight > 50.0 {
-                        weight = 0.0;
+                    if load_cell.is_ready() {
+                        let reading = load_cell.read_scaled();
+                        if let Ok(x) = reading {
+                            log::info!("Last Reading = {:?}", weight);
+                            weight = x;
+                        }
                     }
 
                     let timestamp_us: u32 = start.elapsed().as_micros() as u32;
@@ -289,7 +315,6 @@ async fn custom_task<C: Controller, P: PacketPool>(
                         log::warn!("[custom_task] notify failed - connection probably closed");
                         break;
                     }
-
                     embassy_time::Timer::after_millis(100).await;
                 }
             }
