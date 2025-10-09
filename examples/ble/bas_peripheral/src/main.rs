@@ -7,7 +7,6 @@ mod datapoint;
 
 use embassy_executor::Spawner;
 use embassy_futures::{join::join, select::select};
-use embassy_time::Timer;
 use esp_alloc as _;
 use esp_backtrace as _;
 #[cfg(target_arch = "riscv32")]
@@ -17,14 +16,10 @@ use esp_radio::ble::controller::BleConnector;
 use log::{info, warn};
 use static_cell::StaticCell;
 use trouble_host::prelude::*;
-use core::time::Duration;
-use embassy_time::Instant;
-use bytemuck::{bytes_of, cast};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use core::sync::atomic::{AtomicBool, Ordering};
 use esp_hal::{
     delay::Delay,
-    gpio::{Input, Level, Output, Pull, InputConfig, OutputConfig},
+    gpio::{Input, Level, Output, InputConfig, OutputConfig},
 };
 use loadcell::{hx711, LoadCell};
 use crate::datapoint::{DataOpcode, ControlOpcode, DATA_PAYLOAD_SIZE};
@@ -64,7 +59,7 @@ async fn main(_s: Spawner) {
     let hx711_sck = Output::new(peripherals.GPIO5, Level::Low, OutputConfig::default());
     let hx711_dt = Input::new(peripherals.GPIO6, InputConfig::default());
 
-    let mut delay = Delay::new();
+    let delay = Delay::new();
 
     // create the load sensor
     let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
@@ -113,14 +108,9 @@ where
     SckPin: embedded_hal::digital::OutputPin,
     DTPin: embedded_hal::digital::InputPin,
 {
-    // Using a fixed "random" address can be useful for testing. In real scenarios, one would
-    // use e.g. the MAC 6 byte array as the address (how to get that varies by the platform).
-    let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
-    info!("Our address = {:?}", address);
-
     let mut resources: HostResources<DefaultPacketPool, CONNECTIONS_MAX, L2CAP_CHANNELS_MAX> =
         HostResources::new();
-    let stack = trouble_host::new(controller, &mut resources).set_random_address(address);
+    let stack = trouble_host::new(controller, &mut resources);
     let Host {
         mut peripheral,
         runner,
@@ -214,7 +204,7 @@ async fn gatt_events_task<P: PacketPool>(
                                 log::info!("[gatt] StopMeasurements received");
                                 MEASUREMENT_CMD.signal(MeasurementCommand::Stop);
                             }
-                            other => log::info!("[gatt] Received other command")
+                            _other => log::info!("[gatt] Received other command")
                         }
                     }
                     GattEvent::Read(e) if e.handle() == data_point.handle => {

@@ -1,6 +1,3 @@
-use bytemuck::{bytes_of, Pod, Zeroable};
-use bytemuck_derive::{Pod, Zeroable};
-use defmt::Format;
 
 pub(crate) const DATA_PAYLOAD_SIZE: usize = 12;
 
