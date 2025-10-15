@@ -84,23 +84,40 @@ impl ControlOpcode {
     pub(crate) fn is_known_opcode(&self) -> bool {
         !matches!(self, Self::Unknown(_) | Self::Invalid)
     }
+
     pub(crate) fn from_bytes(data: &[u8]) -> Self {
         if data.is_empty() {
             return ControlOpcode::Invalid;
         }
-
         match data[0] {
-            0x00 => ControlOpcode::Tare,
+            0x64 => ControlOpcode::Tare,
             0x65 => ControlOpcode::StartMeasurement,
             0x66 => ControlOpcode::StopMeasurement,
-            0x03 => ControlOpcode::StartPeakRfdMeasurement,
-            0x04 => ControlOpcode::StartPeakRfdMeasurementSeries,
-            0x05 => ControlOpcode::GetAppVersion,
-            0x06 => ControlOpcode::GetErrorInfo,
-            0x07 => ControlOpcode::ClearErrorInfo,
-            0x09 => ControlOpcode::SampleBattery,
+            0x67 => ControlOpcode::StartPeakRfdMeasurement,
+            0x68 => ControlOpcode::StartPeakRfdMeasurementSeries,
+            0x6B => ControlOpcode::GetAppVersion,
+            0x6C => ControlOpcode::GetErrorInfo,
+            0x6D => ControlOpcode::ClearErrorInfo,
+            0x6F => ControlOpcode::SampleBattery,
             0x70 => ControlOpcode::GetProgressorID,
             other => ControlOpcode::Unknown(other),
+        }
+    }
+
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            ControlOpcode::Tare                          => "Tare",
+            ControlOpcode::StartMeasurement              => "StartMeasurement",
+            ControlOpcode::StopMeasurement               => "StopMeasurement",
+            ControlOpcode::StartPeakRfdMeasurement       => "StartPeakRfdMeasurement",
+            ControlOpcode::StartPeakRfdMeasurementSeries => "StartPeakRfdMeasurementSeries",
+            ControlOpcode::GetAppVersion                 => "GetAppVersion",
+            ControlOpcode::GetErrorInfo                  => "GetErrorInfo",
+            ControlOpcode::ClearErrorInfo                => "ClearErrorInfo",
+            ControlOpcode::SampleBattery                 => "SampleBattery",
+            ControlOpcode::GetProgressorID               => "Get ProgressorId",
+            ControlOpcode::Unknown(_)                    => "Unknown",
+            ControlOpcode::Invalid                       => "Invalid",
         }
     }
 }

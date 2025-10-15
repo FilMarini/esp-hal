@@ -6,16 +6,18 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use esp_hal::delay::Delay;
 use loadcell::hx711::HX711;
 use loadcell::LoadCell;
+use log::{info, warn};
 use crate::datapoint::DataOpcode;
 use crate::measurement::{MeasurementCommand, MEASUREMENT_CMD, MEASUREMENT_DATA};
 
 #[task]
 pub async fn start_measurement_task(mut load_sensor: HX711<esp_hal::gpio::Output<'static>, esp_hal::gpio::Input<'static>, Delay>) {
-    let start = Instant::now();
+    let mut start = Instant::now();
 
     loop {
         match MEASUREMENT_CMD.wait().await {
             MeasurementCommand::Start => {
+                start = Instant::now();
                 loop {
                     if let Some(MeasurementCommand::Stop) = MEASUREMENT_CMD.try_take() {
                         break;
@@ -33,6 +35,10 @@ pub async fn start_measurement_task(mut load_sensor: HX711<esp_hal::gpio::Output
                 }
             }
             MeasurementCommand::Stop => {}
+            MeasurementCommand::Tare => {
+                info!{"Taring the load sensor"}
+                load_sensor.tare(16);
+            }
         }
     }
 }

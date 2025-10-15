@@ -7,6 +7,7 @@ pub(crate) const DATA_PAYLOAD_SIZE: usize = crate::datapoint::DATA_PAYLOAD_SIZE;
 pub enum MeasurementCommand {
     Start,
     Stop,
+    Tare,
 }
 
 pub static MEASUREMENT_CMD: Signal<CriticalSectionRawMutex, MeasurementCommand> = Signal::new();

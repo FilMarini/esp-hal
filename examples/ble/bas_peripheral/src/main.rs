@@ -14,6 +14,7 @@ use esp_backtrace as _;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use loadcell::{hx711, LoadCell};
+use log::{info, warn};
 
 use crate::measurement::start_measurement_task;
 use crate::ble::run_ble;
@@ -42,7 +43,13 @@ async fn main(spawner: Spawner) {
     let delay = Delay::new();
 
     let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
+    while !load_sensor.is_ready() {
+        info!{"Waiting for HX711 to power up"}
+        embassy_time::Timer::after_millis(1000).await;
+    }
+    info!{"Taring load sensor.."}
     load_sensor.tare(16);
+    info!("Tare done!");
     load_sensor.set_scale(1.0);
 
     // --- Start Measurement Task ---

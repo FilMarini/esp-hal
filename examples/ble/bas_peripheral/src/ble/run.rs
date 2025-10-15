@@ -103,11 +103,23 @@ async fn gatt_events_task<P: PacketPool>(
             GattConnectionEvent::Gatt { event } => match &event {
                 GattEvent::Write(e) if e.handle() == control_point.handle => {
                     let data = e.data();
-                    info!("[gatt] Control Write: {:?}", data);
+                    info!("[gatt] Control Write: {:?}", ControlOpcode::from_bytes(data).name());
                     match ControlOpcode::from_bytes(data) {
                         ControlOpcode::GetProgressorID => {
                             let response = DataOpcode::ProgressorId(42u8);
                             if data_point.notify(conn, &response.to_bytes()).await.is_err() {
+                                warn!("[gatt] Failed to notify data point");
+                            }
+                        }
+                        ControlOpcode::GetAppVersion => {
+                            let response = DataOpcode::AppVersion("1.2.5".as_bytes());
+                            if data_point.notify(conn, &response.to_bytes()).await.is_err(){
+                                warn!("[gatt] Failed to notify data point");
+                            }
+                        }
+                        ControlOpcode::SampleBattery => {  // Not working, not even with the placeholder value, why??
+                            let response = DataOpcode::BatteryVoltage(3000u32);
+                            if data_point.notify(conn, &response.to_bytes()).await.is_err(){
                                 warn!("[gatt] Failed to notify data point");
                             }
                         }
@@ -116,6 +128,9 @@ async fn gatt_events_task<P: PacketPool>(
                         }
                         ControlOpcode::StopMeasurement => {
                             MEASUREMENT_CMD.signal(MeasurementCommand::Stop);
+                        }
+                        ControlOpcode::Tare => {
+                            MEASUREMENT_CMD.signal(MeasurementCommand::Tare);
                         }
                         _ => {}
                     }
