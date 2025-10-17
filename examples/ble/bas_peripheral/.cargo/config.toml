@@ -19,6 +19,10 @@ rustflags = [
 
 [env]
 ESP_LOG = "info"
+PROGRESSOR_NAME = "Progressor_1"
+APP_VERSION = "1.2.3"
+DEVICE_ID = "42"
+    
 
 [unstable]
 build-std = ["core", "alloc"]

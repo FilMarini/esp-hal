@@ -22,7 +22,6 @@ pub async fn start_measurement_task(mut load_sensor: HX711<esp_hal::gpio::Output
                     if let Some(MeasurementCommand::Stop) = MEASUREMENT_CMD.try_take() {
                         break;
                     }
-
                     if load_sensor.is_ready() {
                         if let Ok(weight) = load_sensor.read_scaled() {
                             let timestamp = start.elapsed().as_micros() as u32;
@@ -30,12 +29,12 @@ pub async fn start_measurement_task(mut load_sensor: HX711<esp_hal::gpio::Output
                             MEASUREMENT_DATA.send(packet).await;
                         }
                     }
-
                     Timer::after_millis(10).await;
                 }
             }
             MeasurementCommand::Stop => {}
             MeasurementCommand::Tare => {
+                #[cfg(debug_assertions)]
                 info!{"Taring the load sensor"}
                 load_sensor.tare(16);
             }

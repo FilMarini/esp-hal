@@ -16,9 +16,6 @@ use esp_hal::interrupt::software::SoftwareInterruptControl;
 use loadcell::{hx711, LoadCell};
 use log::{info, warn};
 
-use crate::measurement::start_measurement_task;
-use crate::ble::run_ble;
-
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
@@ -43,18 +40,19 @@ async fn main(spawner: Spawner) {
     let delay = Delay::new();
 
     let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
+    embassy_time::Timer::after_millis(1000).await;
     while !load_sensor.is_ready() {
         info!{"Waiting for HX711 to power up"}
         embassy_time::Timer::after_millis(1000).await;
     }
-    info!{"Taring load sensor.."}
-    load_sensor.tare(16);
-    info!("Tare done!");
-    load_sensor.set_scale(1.0);
+    load_sensor.tare(32);
+    #[cfg(debug_assertions)]
+    info!("Load sensor tared!");
+    load_sensor.set_scale(0.0001);
 
     // --- Start Measurement Task ---
-    spawner.spawn(start_measurement_task(load_sensor)).unwrap();
+    spawner.spawn(measurement::start_measurement_task(load_sensor)).unwrap();
 
     // --- BLE Setup ---
-    run_ble(peripherals.BT).await;
+    ble::run_ble(peripherals.BT).await;
 }

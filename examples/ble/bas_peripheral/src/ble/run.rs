@@ -7,6 +7,8 @@ use esp_radio::ble::controller::BleConnector;
 use crate::measurement::{MEASUREMENT_CMD, MEASUREMENT_DATA, MeasurementCommand};
 use crate::datapoint::{ControlOpcode, DataOpcode};
 use super::gatt::Server;
+use super::BLE_CONNECTED;
+use super::{PROGRESSOR_NAME, APP_VERSION, DEVICE_ID};
 
 /// Max number of connections and channels
 const CONNECTIONS_MAX: usize = 1;
@@ -26,23 +28,30 @@ pub async fn run_ble(bt_peripheral: esp_hal::peripherals::BT<'_>) {
     let Host { mut peripheral, runner, .. } = stack.build();
 
     let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-        name: "Progressor_1234",
+        name: PROGRESSOR_NAME,
         appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
     }))
-    .unwrap();
+        .unwrap();
 
+    #[cfg(debug_assertions)]
     info!("[ble] starting advertising and GATT service");
 
     let _ = join(ble_task(runner), async {
         loop {
-            match advertise("Progressor_1234", &mut peripheral, &server).await {
+            match advertise(PROGRESSOR_NAME, &mut peripheral, &server).await {
                 Ok(conn) => {
+                    BLE_CONNECTED.signal(true);
+                    #[cfg(debug_assertions)]
+                    info!("[BLE] Connected");
                     let a = gatt_events_task(&server, &conn);
                     let b = data_notify_task(&server, &conn);
                     select(a, b).await;
+                    BLE_CONNECTED.signal(false);
+                    #[cfg(debug_assertions)]
+                    info!("[BLE] Disconnected");
                 }
                 Err(e) => {
-                    warn!("[ble] advertising error: {:?}", e);
+                    warn!("[BLE] advertising error: {:?}", e);
                 }
             }
         }
@@ -83,9 +92,9 @@ async fn advertise<'values, 'server, C: Controller>(
             },
         )
         .await?;
+    #[cfg(debug_assertions)]
     info!("[adv] advertising");
     let conn = advertiser.accept().await?.with_attribute_server(server)?;
-    info!("[adv] connection established");
     Ok(conn)
 }
 
@@ -103,16 +112,17 @@ async fn gatt_events_task<P: PacketPool>(
             GattConnectionEvent::Gatt { event } => match &event {
                 GattEvent::Write(e) if e.handle() == control_point.handle => {
                     let data = e.data();
+                    #[cfg(debug_assertions)]
                     info!("[gatt] Control Write: {:?}", ControlOpcode::from_bytes(data).name());
                     match ControlOpcode::from_bytes(data) {
                         ControlOpcode::GetProgressorID => {
-                            let response = DataOpcode::ProgressorId(42u8);
+                            let response = DataOpcode::ProgressorId(DEVICE_ID.parse().unwrap());
                             if data_point.notify(conn, &response.to_bytes()).await.is_err() {
                                 warn!("[gatt] Failed to notify data point");
                             }
                         }
                         ControlOpcode::GetAppVersion => {
-                            let response = DataOpcode::AppVersion("1.2.5".as_bytes());
+                            let response = DataOpcode::AppVersion(APP_VERSION.as_bytes());
                             if data_point.notify(conn, &response.to_bytes()).await.is_err(){
                                 warn!("[gatt] Failed to notify data point");
                             }
@@ -141,6 +151,7 @@ async fn gatt_events_task<P: PacketPool>(
         }
     };
 
+    #[cfg(debug_assertions)]
     info!("[gatt] disconnected: {:?}", reason);
     Ok(())
 }

@@ -1,9 +1,8 @@
-
-pub(crate) const DATA_PAYLOAD_SIZE: usize = 12;
+pub const DATA_PAYLOAD_SIZE: usize = 12;
 
 /// DataOpCode: Data to send in response to ControlOpcode
 #[derive(Copy, Clone)]
-pub(crate) enum DataOpcode {
+pub enum DataOpcode {
     BatteryVoltage(u32), // Not currently supported
     Weight(f32, u32),
     LowPowerWarning, // Not currently supported
@@ -53,7 +52,7 @@ impl DataOpcode {
         value
     }
 
-    pub(crate) fn to_bytes(&self) -> [u8; DATA_PAYLOAD_SIZE + 2] {
+    pub fn to_bytes(&self) -> [u8; DATA_PAYLOAD_SIZE + 2] {
         let mut buf = [0u8; DATA_PAYLOAD_SIZE + 2];
         buf[0] = self.opcode();
         buf[1] = self.length();
@@ -65,7 +64,7 @@ impl DataOpcode {
 
 /// ControlOpcode: command received
 #[derive(Copy, Clone)]
-pub(crate) enum ControlOpcode {
+pub enum ControlOpcode {
     Tare,
     StartMeasurement,
     StopMeasurement,
@@ -81,11 +80,11 @@ pub(crate) enum ControlOpcode {
 }
 
 impl ControlOpcode {
-    pub(crate) fn is_known_opcode(&self) -> bool {
+    pub fn is_known_opcode(&self) -> bool {
         !matches!(self, Self::Unknown(_) | Self::Invalid)
     }
 
-    pub(crate) fn from_bytes(data: &[u8]) -> Self {
+    pub fn from_bytes(data: &[u8]) -> Self {
         if data.is_empty() {
             return ControlOpcode::Invalid;
         }
@@ -104,7 +103,7 @@ impl ControlOpcode {
         }
     }
 
-    pub(crate) fn name(&self) -> &'static str {
+    pub fn name(&self) -> &'static str {
         match self {
             ControlOpcode::Tare                          => "Tare",
             ControlOpcode::StartMeasurement              => "StartMeasurement",
