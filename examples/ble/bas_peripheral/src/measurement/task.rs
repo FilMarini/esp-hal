@@ -45,12 +45,14 @@ pub async fn start_measurement_task(load_sensor: &'static Mutex<CriticalSectionR
 }
 
 #[task]
-pub async fn run_calibration(load_sensor: &'static Mutex<CriticalSectionRawMutex, HX711BB<'static, Output<'static>, Input<'static>, Delay>>, mut button: Input<'static>, delay: Delay, millis: u32) {
+pub async fn run_calibration(load_sensor: &'static Mutex<CriticalSectionRawMutex, HX711BB<'static, Output<'static>, Input<'static>, Delay>>, mut button: Input<'static>, millis: u32) {
     loop {
-        if press_for_millis(&button, &delay, millis) {
+        if press_for_millis(&button, millis) {
             debug_info("Entering calibration..");
             let mut sensor = load_sensor.lock().await;
             sensor.init_calibration();
+            button.wait_for_rising_edge().await;
+            Timer::after_millis(3).await;
             button.wait_for_falling_edge().await;
             sensor.calibrate();
             Timer::after_millis(1000).await;

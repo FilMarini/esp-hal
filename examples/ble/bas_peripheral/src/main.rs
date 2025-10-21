@@ -50,7 +50,6 @@ async fn main(spawner: Spawner) {
     let calib_button = Input::new(peripherals.GPIO9, calib_config);
     // --- Delay Setup ---
     let delay = Delay::new();
-    let calib_delay = Delay::new();
     // --- Peripherals Setup ---
     let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
     let mut flash = FlashStorage::new(peripherals.FLASH);
@@ -69,7 +68,7 @@ async fn main(spawner: Spawner) {
 
     // --- Start Measurement and Calibration Task ---
     spawner.spawn(measurement::start_measurement_task(shared_sensor)).unwrap();
-    spawner.spawn(measurement::run_calibration(shared_sensor, calib_button, calib_delay, 2000u32)).unwrap();
+    spawner.spawn(measurement::run_calibration(shared_sensor, calib_button, 2000u32)).unwrap();
 
     // --- BLE Setup ---
     ble::run_ble(peripherals.BT).await;

@@ -32,6 +32,7 @@ pub struct HX711BB<'a, Output, Input, Delay> {
     start_time: Instant,
     _first_meas: i32,
     calibration_value: f32,
+    _delay: Delay,
 }
 
 impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
@@ -46,6 +47,7 @@ impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
             start_time: Instant::now(),
             _first_meas: 0i32,
             calibration_value: calibration_val,
+            _delay: Delay::new(),
         };
         new
     }
@@ -54,19 +56,15 @@ impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
         self.start_time = Instant::now();
     }
 
-    pub fn elapsed_utime(&self) -> u32 {
-        self.start_time.elapsed().as_micros() as u32
-    }
-
     pub fn get_weight_packet(&mut self) -> DataOpcode {
-        let mut packet = DataOpcode::Weight(0f32, 0u32);
-        if self.load_cell.is_ready() {
-            if let Ok(weight) = self.load_cell.read_scaled() {
-                let timestamp = self.elapsed_utime();
-                packet = DataOpcode::Weight(weight, timestamp);
-            }
+        while !self.load_cell.is_ready() {
+            self._delay.delay_millis(1);
         }
-        packet
+        if let Ok(weight) = self.load_cell.read_scaled() {
+            let timestamp = self.start_time.elapsed().as_micros() as u32;
+            return DataOpcode::Weight(weight, timestamp);
+        }
+        DataOpcode::Weight(0f32, 0u32)
     }
 
     pub fn tare(&mut self, num_samples: usize) {
@@ -88,6 +86,7 @@ impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
     pub fn calibrate(&mut self) {
         let second_meas = self.load_cell.read().unwrap();
         self.calibration_value = 10.0 / ((second_meas - self._first_meas) as f32);
+        debug_info(&format!("Load sensor calibrated with value {:?}", self.calibration_value));
         self.calibration_memory.set_calibration(self.calibration_value);
     }
 
