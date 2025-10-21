@@ -1,12 +1,13 @@
 use embassy_futures::{join::join, select::select};
-use log::{info, warn};
 use static_cell::StaticCell;
 use trouble_host::prelude::*;
+use alloc::format;
 
 use esp_radio::ble::controller::BleConnector;
 use crate::measurement::{MEASUREMENT_CMD, MEASUREMENT_DATA, MeasurementCommand};
 use crate::datapoint::{ControlOpcode, DataOpcode};
 use super::gatt::Server;
+use crate::utils::{debug_info, debug_warn};
 use super::BLE_CONNECTED;
 use super::{PROGRESSOR_NAME, APP_VERSION, DEVICE_ID};
 
@@ -18,10 +19,8 @@ const L2CAP_CHANNELS_MAX: usize = 2;
 pub async fn run_ble(bt_peripheral: esp_hal::peripherals::BT<'_>) {
     static RADIO: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
     let radio = RADIO.init(esp_radio::init().unwrap());
-
     let connector = BleConnector::new(radio, bt_peripheral, Default::default()).unwrap();
     let controller: ExternalController<_, 20> = ExternalController::new(connector);
-
     let mut resources: HostResources<DefaultPacketPool, CONNECTIONS_MAX, L2CAP_CHANNELS_MAX> =
         HostResources::new();
     let stack = trouble_host::new(controller, &mut resources);
@@ -33,25 +32,22 @@ pub async fn run_ble(bt_peripheral: esp_hal::peripherals::BT<'_>) {
     }))
         .unwrap();
 
-    #[cfg(debug_assertions)]
-    info!("[ble] starting advertising and GATT service");
+    debug_info("[ble] starting advertising and GATT service");
 
     let _ = join(ble_task(runner), async {
         loop {
             match advertise(PROGRESSOR_NAME, &mut peripheral, &server).await {
                 Ok(conn) => {
                     BLE_CONNECTED.signal(true);
-                    #[cfg(debug_assertions)]
-                    info!("[BLE] Connected");
+                    debug_info("[BLE] Connected");
                     let a = gatt_events_task(&server, &conn);
                     let b = data_notify_task(&server, &conn);
                     select(a, b).await;
                     BLE_CONNECTED.signal(false);
-                    #[cfg(debug_assertions)]
-                    info!("[BLE] Disconnected");
+                    debug_info("[BLE] Disconnected");
                 }
                 Err(e) => {
-                    warn!("[BLE] advertising error: {:?}", e);
+                    debug_warn(&format!("[BLE] advertising error: {:?}", e));
                 }
             }
         }
@@ -63,7 +59,7 @@ pub async fn run_ble(bt_peripheral: esp_hal::peripherals::BT<'_>) {
 async fn ble_task<C: Controller, P: PacketPool>(mut runner: Runner<'_, C, P>) {
     loop {
         if let Err(e) = runner.run().await {
-            warn!("[ble_task] error: {:?}", e);
+            debug_warn(&format!("[ble_task] error: {:?}", e));
         }
     }
 }
@@ -92,8 +88,7 @@ async fn advertise<'values, 'server, C: Controller>(
             },
         )
         .await?;
-    #[cfg(debug_assertions)]
-    info!("[adv] advertising");
+    debug_info("[adv] advertising");
     let conn = advertiser.accept().await?.with_attribute_server(server)?;
     Ok(conn)
 }
@@ -112,25 +107,24 @@ async fn gatt_events_task<P: PacketPool>(
             GattConnectionEvent::Gatt { event } => match &event {
                 GattEvent::Write(e) if e.handle() == control_point.handle => {
                     let data = e.data();
-                    #[cfg(debug_assertions)]
-                    info!("[gatt] Control Write: {:?}", ControlOpcode::from_bytes(data).name());
+                    debug_info(&format!("[gatt] Control Write: {:?}", ControlOpcode::from_bytes(data).name()));
                     match ControlOpcode::from_bytes(data) {
                         ControlOpcode::GetProgressorID => {
                             let response = DataOpcode::ProgressorId(DEVICE_ID.parse().unwrap());
                             if data_point.notify(conn, &response.to_bytes()).await.is_err() {
-                                warn!("[gatt] Failed to notify data point");
+                                debug_warn("[gatt] Failed to notify data point");
                             }
                         }
                         ControlOpcode::GetAppVersion => {
                             let response = DataOpcode::AppVersion(APP_VERSION.as_bytes());
                             if data_point.notify(conn, &response.to_bytes()).await.is_err(){
-                                warn!("[gatt] Failed to notify data point");
+                                debug_warn("[gatt] Failed to notify data point");
                             }
                         }
                         ControlOpcode::SampleBattery => {  // Not working, not even with the placeholder value, why??
                             let response = DataOpcode::BatteryVoltage(3000u32);
                             if data_point.notify(conn, &response.to_bytes()).await.is_err(){
-                                warn!("[gatt] Failed to notify data point");
+                                debug_warn("[gatt] Failed to notify data point");
                             }
                         }
                         ControlOpcode::StartMeasurement => {
@@ -142,6 +136,9 @@ async fn gatt_events_task<P: PacketPool>(
                         ControlOpcode::Tare => {
                             MEASUREMENT_CMD.signal(MeasurementCommand::Tare);
                         }
+                        ControlOpcode::Unknown(code) => {
+                            debug_info(&format!("Unknown with code {:?}", code));
+                        }
                         _ => {}
                     }
                 }
@@ -151,8 +148,7 @@ async fn gatt_events_task<P: PacketPool>(
         }
     };
 
-    #[cfg(debug_assertions)]
-    info!("[gatt] disconnected: {:?}", reason);
+    debug_info(&format!("[gatt] disconnected: {:?}", reason));
     Ok(())
 }
 
@@ -165,7 +161,7 @@ async fn data_notify_task<P: PacketPool>(
     loop {
         let packet = MEASUREMENT_DATA.receive().await;
         if data_point.notify(conn, &packet.to_bytes()).await.is_err() {
-            warn!("[notify] connection closed");
+            debug_warn("[notify] connection closed");
             break;
         }
     }

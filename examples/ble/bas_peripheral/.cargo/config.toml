@@ -22,7 +22,7 @@ ESP_LOG = "info"
 PROGRESSOR_NAME = "Progressor_1"
 APP_VERSION = "1.2.3"
 DEVICE_ID = "42"
-    
+DEFAULT_CALIB_VALUE = "0.0000625"
 
 [unstable]
 build-std = ["core", "alloc"]

@@ -6,15 +6,24 @@ extern crate alloc;
 mod ble;
 mod measurement;
 mod datapoint;
+mod utils;
+mod calibration_mem;
 
 use embassy_executor::Spawner;
-use esp_hal::{clock::CpuClock, delay::Delay, gpio::{Input, InputConfig, Level, Output, OutputConfig}, timer::timg::TimerGroup};
+use esp_hal::{clock::CpuClock, delay::Delay, gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull}, timer::timg::TimerGroup};
 use esp_alloc as _;
 use esp_backtrace as _;
+use esp_storage::FlashStorage;
+use alloc::format;
+
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use loadcell::{hx711, LoadCell};
-use log::{info, warn};
+use utils::debug_info;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use static_cell::StaticCell;
+use measurement::LOAD_SENSOR;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -34,24 +43,33 @@ async fn main(spawner: Spawner) {
         sw_int.software_interrupt0,
     );
 
-    // --- Load Cell Setup ---
+    // --- GPIO Setup ---
     let hx711_sck = Output::new(peripherals.GPIO5, Level::Low, OutputConfig::default());
     let hx711_dt = Input::new(peripherals.GPIO6, InputConfig::default());
+    let calib_config = InputConfig::default().with_pull(Pull::Up);
+    let calib_button = Input::new(peripherals.GPIO9, calib_config);
+    // --- Delay Setup ---
     let delay = Delay::new();
-
+    let calib_delay = Delay::new();
+    // --- Peripherals Setup ---
     let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
-    embassy_time::Timer::after_millis(1000).await;
+    let mut flash = FlashStorage::new(peripherals.FLASH);
+    let mut cal_mem = calibration_mem::CalibrationMem::new(flash);
+
+    embassy_time::Timer::after_millis(3000).await;
     while !load_sensor.is_ready() {
-        info!{"Waiting for HX711 to power up"}
+        debug_info("Waiting for HX711 to power up");
         embassy_time::Timer::after_millis(1000).await;
     }
+    load_sensor.set_scale(cal_mem.calib);
+    debug_info(&format!("Load sensor calibrated at {:?}", cal_mem.calib));
     load_sensor.tare(32);
-    #[cfg(debug_assertions)]
-    info!("Load sensor tared!");
-    load_sensor.set_scale(0.0001);
+    debug_info("Load sensor tared!");
+    let shared_sensor = LOAD_SENSOR.init(Mutex::new(load_sensor));
 
-    // --- Start Measurement Task ---
-    spawner.spawn(measurement::start_measurement_task(load_sensor)).unwrap();
+    // --- Start Measurement and Calibration Task ---
+    spawner.spawn(measurement::start_measurement_task(shared_sensor)).unwrap();
+    spawner.spawn(measurement::run_calibration(shared_sensor, cal_mem, calib_button, calib_delay, 2000u32)).unwrap();
 
     // --- BLE Setup ---
     ble::run_ble(peripherals.BT).await;
