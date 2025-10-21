@@ -49,12 +49,13 @@ async fn main(spawner: Spawner) {
     let mut hx711_bb = HX711BB::new(flash, hx711_sck, hx711_dt);
 
     // Wait for the HX711 to stabilize
-    embassy_time::Timer::after_millis(3500).await;
     while !hx711_bb.is_ready() {
         debug_info("Waiting for HX711 to power up");
         embassy_time::Timer::after_millis(1000).await;
     }
     hx711_bb.set_scale_from_memory();
+    hx711_bb.tare(32);
+    embassy_time::Timer::after_millis(1000).await;
     hx711_bb.tare(32);
     debug_info("Load sensor tared!");
     let shared_hx711_bb = LOAD_SENSOR.init(Mutex::new(hx711_bb));

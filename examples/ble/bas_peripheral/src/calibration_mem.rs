@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use aligned::{Aligned, A32};
 use crc::{Crc, CRC_32_ISCSI};
 use esp_storage::FlashStorage;
