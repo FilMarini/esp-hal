@@ -3,6 +3,7 @@ use crc::{Crc, CRC_32_ISCSI};
 use esp_storage::FlashStorage;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use crate::utils::{debug_info, debug_warn};
+use alloc::format;
 
 const DEFAULT_CALIB_VALUE: &str = env!("DEFAULT_CALIB_VALUE");
 const CAL_ADDR: u32 = 0x110000;
@@ -45,7 +46,8 @@ impl<'a> CalibrationMem<'a> {
             new.checksum = checksum;
         } else {
             debug_warn("Checksum does not match! Wrote default value");
-            new.checksum = computed_checksum;
+            new.checksum = u32::from_le_bytes(comp_checksum(&new.calib.to_le_bytes()));
+            new.set_in_memory();
         }
         new
     }

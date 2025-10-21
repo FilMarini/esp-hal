@@ -5,6 +5,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::Instant;
+use embassy_time::Timer;
 use esp_storage::FlashStorage;
 use static_cell::StaticCell;
 use loadcell::hx711::HX711;
@@ -63,15 +64,16 @@ impl HX711BB<'static, Output<'static>, Input<'static>> {
         self.start_time = Instant::now();
     }
 
-    pub fn get_weight_packet(&mut self) -> DataOpcode {
+    pub async fn get_weight_packet(&mut self) -> DataOpcode {
         while !self.load_cell.is_ready() {
-            self._delay.delay_millis(1);
+            Timer::after_millis(1).await;
         }
         if let Ok(weight) = self.load_cell.read_scaled() {
             let timestamp = self.start_time.elapsed().as_micros() as u32;
             return DataOpcode::Weight(weight, timestamp);
+        } else {
+            DataOpcode::Weight(0f32, 0u32)
         }
-        DataOpcode::Weight(0f32, 0u32)
     }
 
     pub fn tare(&mut self, num_samples: usize) {

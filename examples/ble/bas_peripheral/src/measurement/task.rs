@@ -22,7 +22,7 @@ pub async fn start_measurement_task(load_sensor: &'static Mutex<CriticalSectionR
                         break;
                     }
                     let mut sensor = load_sensor.lock().await;
-                    let packet = sensor.get_weight_packet();
+                    let packet = sensor.get_weight_packet().await;
                     MEASUREMENT_DATA.send(packet).await;
                 }
                     Timer::after_millis(10).await;
