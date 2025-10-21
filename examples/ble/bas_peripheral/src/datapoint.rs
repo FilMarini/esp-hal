@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub const DATA_PAYLOAD_SIZE: usize = 12;
 
 /// DataOpCode: Data to send in response to ControlOpcode

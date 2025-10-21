@@ -22,7 +22,7 @@ pub struct CalibrationMem<'a> {
 }
 
 impl<'a> CalibrationMem<'a> {
-    pub fn new(mut flash: FlashStorage<'a>) -> Self {
+    pub fn new(flash: FlashStorage<'a>) -> Self {
         // Create initial CalibrationMem
         let mut new = Self {
             flash: flash,

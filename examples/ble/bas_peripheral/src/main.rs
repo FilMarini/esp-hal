@@ -8,22 +8,16 @@ mod measurement;
 mod datapoint;
 mod utils;
 mod calibration_mem;
-
 use embassy_executor::Spawner;
-use esp_hal::{clock::CpuClock, delay::Delay, gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull}, timer::timg::TimerGroup};
+use esp_hal::{clock::CpuClock, gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull}, timer::timg::TimerGroup};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_storage::FlashStorage;
-use alloc::format;
-
-#[cfg(target_arch = "riscv32")]
-use esp_hal::interrupt::software::SoftwareInterruptControl;
-use loadcell::{hx711, LoadCell};
 use utils::debug_info;
 use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use static_cell::StaticCell;
 use measurement::{HX711BB, LOAD_SENSOR};
+#[cfg(target_arch = "riscv32")]
+use esp_hal::interrupt::software::SoftwareInterruptControl;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -51,7 +45,7 @@ async fn main(spawner: Spawner) {
     let led_config = OutputConfig::default().with_pull(Pull::Down);
     let led = Output::new(peripherals.GPIO4, Level::Low, led_config);
     // --- Peripherals Setup ---
-    let mut flash = FlashStorage::new(peripherals.FLASH);
+    let flash = FlashStorage::new(peripherals.FLASH);
     let mut hx711_bb = HX711BB::new(flash, hx711_sck, hx711_dt);
 
     // Wait for the HX711 to stabilize

@@ -1,15 +1,9 @@
 use embassy_executor::task;
 use embassy_sync::mutex::Mutex;
-use embassy_sync::signal::Signal;
-use embassy_sync::channel::Channel;
-use embassy_time::{Instant, Timer};
+use embassy_time::Timer;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
-use loadcell::hx711::HX711;
-use loadcell::LoadCell;
 use alloc::format;
-use crate::datapoint::DataOpcode;
 use crate::measurement::{MeasurementCommand, MEASUREMENT_CMD, MEASUREMENT_DATA};
 use crate::utils::*;
 use super::HX711BB;
@@ -28,9 +22,8 @@ pub async fn start_measurement_task(load_sensor: &'static Mutex<CriticalSectionR
                         break;
                     }
                     let mut sensor = load_sensor.lock().await;
-                    if let packet = sensor.get_weight_packet() {
-                        MEASUREMENT_DATA.send(packet).await;
-                    }
+                    let packet = sensor.get_weight_packet();
+                    MEASUREMENT_DATA.send(packet).await;
                 }
                     Timer::after_millis(10).await;
             }

@@ -14,7 +14,7 @@ pub fn debug_warn (sent: &str) {
 
 pub fn press_for_millis(button: &Input<'_>, millis: u32) -> bool {
     let mut checks = 0u32;
-    let mut delay = Delay::new();
+    let delay = Delay::new();
     if button.is_low() {
         debug_info("Starts checking..");
         while checks < millis {

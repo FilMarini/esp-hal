@@ -1,8 +1,10 @@
+#![allow(unused)]
+
 use embassy_sync::mutex::Mutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 use esp_storage::FlashStorage;
 use static_cell::StaticCell;
 use loadcell::hx711::HX711;
@@ -43,10 +45,10 @@ impl HX711BB<'static, Output<'static>, Input<'static>> {
         hx_data: Input<'static>
     ) -> Self {
         let calibration_mem = CalibrationMem::new(flash);
-        let mut delay = Delay::new();
+        let delay = Delay::new();
         let hx711 = HX711::new(hx_clk, hx_data, delay);
         let calibration_val = calibration_mem.calib;
-        let mut new = Self {
+        let new = Self {
             load_cell: hx711,
             calibration_memory: calibration_mem,
             start_time: Instant::now(),
