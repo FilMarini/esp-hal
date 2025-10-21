@@ -48,6 +48,8 @@ async fn main(spawner: Spawner) {
     let hx711_dt = Input::new(peripherals.GPIO6, InputConfig::default());
     let calib_config = InputConfig::default().with_pull(Pull::Up);
     let calib_button = Input::new(peripherals.GPIO9, calib_config);
+    let led_config = OutputConfig::default().with_pull(Pull::Down);
+    let led = Output::new(peripherals.GPIO4, Level::Low, led_config);
     // --- Delay Setup ---
     let delay = Delay::new();
     // --- Peripherals Setup ---
@@ -68,7 +70,7 @@ async fn main(spawner: Spawner) {
 
     // --- Start Measurement and Calibration Task ---
     spawner.spawn(measurement::start_measurement_task(shared_sensor)).unwrap();
-    spawner.spawn(measurement::run_calibration(shared_sensor, calib_button, 2000u32)).unwrap();
+    spawner.spawn(measurement::run_calibration(shared_sensor, calib_button, led, 2000u32)).unwrap();
 
     // --- BLE Setup ---
     ble::run_ble(peripherals.BT).await;
