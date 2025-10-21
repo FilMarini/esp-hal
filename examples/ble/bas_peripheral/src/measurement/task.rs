@@ -15,7 +15,7 @@ use crate::utils::*;
 use super::HX711BB;
 
 #[task]
-pub async fn start_measurement_task(load_sensor: &'static Mutex<CriticalSectionRawMutex, HX711BB<'static, Output<'static>, Input<'static>, Delay>>) {
+pub async fn start_measurement_task(load_sensor: &'static Mutex<CriticalSectionRawMutex, HX711BB<'static, Output<'static>, Input<'static>>>) {
     loop {
         match MEASUREMENT_CMD.wait().await {
             MeasurementCommand::Start => {
@@ -45,7 +45,7 @@ pub async fn start_measurement_task(load_sensor: &'static Mutex<CriticalSectionR
 }
 
 #[task]
-pub async fn run_calibration(load_sensor: &'static Mutex<CriticalSectionRawMutex, HX711BB<'static, Output<'static>, Input<'static>, Delay>>, mut button: Input<'static>, mut led: Output<'static>, millis: u32) {
+pub async fn run_calibration(load_sensor: &'static Mutex<CriticalSectionRawMutex, HX711BB<'static, Output<'static>, Input<'static>>>, mut button: Input<'static>, mut led: Output<'static>, millis: u32) {
     loop {
         if press_for_millis(&button, millis) {
             led.set_high();

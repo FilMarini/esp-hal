@@ -50,27 +50,24 @@ async fn main(spawner: Spawner) {
     let calib_button = Input::new(peripherals.GPIO9, calib_config);
     let led_config = OutputConfig::default().with_pull(Pull::Down);
     let led = Output::new(peripherals.GPIO4, Level::Low, led_config);
-    // --- Delay Setup ---
-    let delay = Delay::new();
     // --- Peripherals Setup ---
-    let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
     let mut flash = FlashStorage::new(peripherals.FLASH);
-    let mut cal_mem = calibration_mem::CalibrationMem::new(flash);
-    let mut load_sensor_bb = HX711BB::new(load_sensor, cal_mem);
+    let mut hx711_bb = HX711BB::new(flash, hx711_sck, hx711_dt);
 
-    embassy_time::Timer::after_millis(3000).await;
-    while !load_sensor_bb.is_ready() {
+    // Wait for the HX711 to stabilize
+    embassy_time::Timer::after_millis(3500).await;
+    while !hx711_bb.is_ready() {
         debug_info("Waiting for HX711 to power up");
         embassy_time::Timer::after_millis(1000).await;
     }
-    load_sensor_bb.set_scale_from_memory();
-    load_sensor_bb.tare(32);
+    hx711_bb.set_scale_from_memory();
+    hx711_bb.tare(32);
     debug_info("Load sensor tared!");
-    let shared_sensor = LOAD_SENSOR.init(Mutex::new(load_sensor_bb));
+    let shared_hx711_bb = LOAD_SENSOR.init(Mutex::new(hx711_bb));
 
     // --- Start Measurement and Calibration Task ---
-    spawner.spawn(measurement::start_measurement_task(shared_sensor)).unwrap();
-    spawner.spawn(measurement::run_calibration(shared_sensor, calib_button, led, 2000u32)).unwrap();
+    spawner.spawn(measurement::start_measurement_task(shared_hx711_bb)).unwrap();
+    spawner.spawn(measurement::run_calibration(shared_hx711_bb, calib_button, led, 2000u32)).unwrap();
 
     // --- BLE Setup ---
     ble::run_ble(peripherals.BT).await;

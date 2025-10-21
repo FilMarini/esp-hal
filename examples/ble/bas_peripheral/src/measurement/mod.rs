@@ -3,6 +3,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Instant, Timer};
+use esp_storage::FlashStorage;
 use static_cell::StaticCell;
 use loadcell::hx711::HX711;
 use loadcell::LoadCell;
@@ -26,7 +27,7 @@ pub static MEASUREMENT_CMD: Signal<CriticalSectionRawMutex, MeasurementCommand> 
 pub static MEASUREMENT_DATA: Channel<CriticalSectionRawMutex, DataOpcode, 4> = Channel::new();
 
 // Extend HX711
-pub struct HX711BB<'a, Output, Input, Delay> {
+pub struct HX711BB<'a, Output, Input> {
     load_cell: HX711<Output, Input, Delay>,
     calibration_memory: CalibrationMem<'a>,
     start_time: Instant,
@@ -35,14 +36,18 @@ pub struct HX711BB<'a, Output, Input, Delay> {
     _delay: Delay,
 }
 
-impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
-    pub fn new<'b>(load_sensor: HX711<Output<'static>, Input<'static>, Delay>, calibration_mem: CalibrationMem<'b>) -> Self
-    where
-        'b : 'a,
-    {
+impl HX711BB<'static, Output<'static>, Input<'static>> {
+    pub fn new(
+        flash: FlashStorage<'static>,
+        hx_clk: Output<'static>,
+        hx_data: Input<'static>
+    ) -> Self {
+        let calibration_mem = CalibrationMem::new(flash);
+        let mut delay = Delay::new();
+        let hx711 = HX711::new(hx_clk, hx_data, delay);
         let calibration_val = calibration_mem.calib;
         let mut new = Self {
-            load_cell: load_sensor,
+            load_cell: hx711,
             calibration_memory: calibration_mem,
             start_time: Instant::now(),
             _first_meas: 0i32,
@@ -97,7 +102,7 @@ impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
 }
 
 // StaticCell for load_sensor
-pub static LOAD_SENSOR: StaticCell<Mutex<CriticalSectionRawMutex, HX711BB<Output<'static>, Input<'static>, Delay>>> = StaticCell::new();
+pub static LOAD_SENSOR: StaticCell<Mutex<CriticalSectionRawMutex, HX711BB<Output<'static>, Input<'static>>>> = StaticCell::new();
 
 mod task;
 pub use task::start_measurement_task;
