@@ -23,7 +23,7 @@ use utils::debug_info;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use static_cell::StaticCell;
-use measurement::LOAD_SENSOR;
+use measurement::{HX711BB, LOAD_SENSOR};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -55,21 +55,21 @@ async fn main(spawner: Spawner) {
     let mut load_sensor = hx711::HX711::new(hx711_sck, hx711_dt, delay);
     let mut flash = FlashStorage::new(peripherals.FLASH);
     let mut cal_mem = calibration_mem::CalibrationMem::new(flash);
+    let mut load_sensor_bb = HX711BB::new(load_sensor, cal_mem);
 
     embassy_time::Timer::after_millis(3000).await;
-    while !load_sensor.is_ready() {
+    while !load_sensor_bb.is_ready() {
         debug_info("Waiting for HX711 to power up");
         embassy_time::Timer::after_millis(1000).await;
     }
-    load_sensor.set_scale(cal_mem.calib);
-    debug_info(&format!("Load sensor calibrated at {:?}", cal_mem.calib));
-    load_sensor.tare(32);
+    load_sensor_bb.set_scale_from_memory();
+    load_sensor_bb.tare(32);
     debug_info("Load sensor tared!");
-    let shared_sensor = LOAD_SENSOR.init(Mutex::new(load_sensor));
+    let shared_sensor = LOAD_SENSOR.init(Mutex::new(load_sensor_bb));
 
     // --- Start Measurement and Calibration Task ---
     spawner.spawn(measurement::start_measurement_task(shared_sensor)).unwrap();
-    spawner.spawn(measurement::run_calibration(shared_sensor, cal_mem, calib_button, calib_delay, 2000u32)).unwrap();
+    spawner.spawn(measurement::run_calibration(shared_sensor, calib_button, calib_delay, 2000u32)).unwrap();
 
     // --- BLE Setup ---
     ble::run_ble(peripherals.BT).await;

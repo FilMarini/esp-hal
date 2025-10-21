@@ -2,11 +2,16 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_time::{Instant, Timer};
 use static_cell::StaticCell;
-use crate::datapoint::DataOpcode;
 use loadcell::hx711::HX711;
+use loadcell::LoadCell;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::delay::Delay;
+use alloc::format;
+use crate::datapoint::DataOpcode;
+use crate::calibration_mem::CalibrationMem;
+use crate::utils::{debug_info, debug_warn};
 
 #[derive(Copy, Clone, Debug)]
 pub enum MeasurementCommand {
@@ -19,8 +24,81 @@ pub enum MeasurementCommand {
 pub static MEASUREMENT_CMD: Signal<CriticalSectionRawMutex, MeasurementCommand> = Signal::new();
 // channel to send measurement data to BLE task
 pub static MEASUREMENT_DATA: Channel<CriticalSectionRawMutex, DataOpcode, 4> = Channel::new();
+
+// Extend HX711
+pub struct HX711BB<'a, Output, Input, Delay> {
+    load_cell: HX711<Output, Input, Delay>,
+    calibration_memory: CalibrationMem<'a>,
+    start_time: Instant,
+    _first_meas: i32,
+    calibration_value: f32,
+}
+
+impl<'a> HX711BB<'a, Output<'static>, Input<'static>, Delay> {
+    pub fn new<'b>(load_sensor: HX711<Output<'static>, Input<'static>, Delay>, calibration_mem: CalibrationMem<'b>) -> Self
+    where
+        'b : 'a,
+    {
+        let calibration_val = calibration_mem.calib;
+        let mut new = Self {
+            load_cell: load_sensor,
+            calibration_memory: calibration_mem,
+            start_time: Instant::now(),
+            _first_meas: 0i32,
+            calibration_value: calibration_val,
+        };
+        new
+    }
+
+    pub fn start_now(&mut self) {
+        self.start_time = Instant::now();
+    }
+
+    pub fn elapsed_utime(&self) -> u32 {
+        self.start_time.elapsed().as_micros() as u32
+    }
+
+    pub fn get_weight_packet(&mut self) -> DataOpcode {
+        let mut packet = DataOpcode::Weight(0f32, 0u32);
+        if self.load_cell.is_ready() {
+            if let Ok(weight) = self.load_cell.read_scaled() {
+                let timestamp = self.elapsed_utime();
+                packet = DataOpcode::Weight(weight, timestamp);
+            }
+        }
+        packet
+    }
+
+    pub fn tare(&mut self, num_samples: usize) {
+        self.load_cell.tare(num_samples);
+    }
+
+    pub fn is_ready(&mut self) -> bool {
+        self.load_cell.is_ready()
+    }
+
+    pub fn set_scale(&mut self, cal_value: f32) {
+        self.load_cell.set_scale(cal_value);
+    }
+
+    pub fn init_calibration(&mut self) {
+        self._first_meas = self.load_cell.read().unwrap();
+    }
+
+    pub fn calibrate(&mut self) {
+        let second_meas = self.load_cell.read().unwrap();
+        self.calibration_value = 10.0 / ((second_meas - self._first_meas) as f32);
+        self.calibration_memory.set_calibration(self.calibration_value);
+    }
+
+    pub fn set_scale_from_memory(&mut self) {
+        self.load_cell.set_scale(self.calibration_value);
+        debug_info(&format!("Load sensor calibrated at {:?}", self.calibration_value));
+    }
+}
+
 // StaticCell for load_sensor
-pub static LOAD_SENSOR: StaticCell<Mutex<CriticalSectionRawMutex, HX711<Output<'static>, Input<'static>, Delay>>> = StaticCell::new();
+pub static LOAD_SENSOR: StaticCell<Mutex<CriticalSectionRawMutex, HX711BB<Output<'static>, Input<'static>, Delay>>> = StaticCell::new();
 
 mod task;
 pub use task::start_measurement_task;
