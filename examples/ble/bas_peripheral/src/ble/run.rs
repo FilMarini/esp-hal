@@ -122,7 +122,7 @@ async fn gatt_events_task<P: PacketPool>(
                             }
                         }
                         ControlOpcode::SampleBattery => {  // Not working, not even with the placeholder value, why??
-                            let response = DataOpcode::BatteryVoltage(3000u32);
+                            let response = DataOpcode::BatteryVoltage(env!("FAKE_BATTERY_VOLTAGE").parse().unwrap());
                             if data_point.notify(conn, &response.to_bytes()).await.is_err(){
                                 debug_warn("[gatt] Failed to notify data point");
                             }

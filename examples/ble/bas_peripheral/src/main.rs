@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
 
     // --- Start Measurement and Calibration Task ---
     spawner.spawn(measurement::start_measurement_task(shared_hx711_bb)).unwrap();
-    spawner.spawn(measurement::run_calibration(shared_hx711_bb, calib_button, led, 2000u32)).unwrap();
+    spawner.spawn(measurement::run_calibration(shared_hx711_bb, calib_button, led, env!("TIME_TO_CALIBRATION").parse().unwrap())).unwrap();
 
     // --- BLE Setup ---
     ble::run_ble(peripherals.BT).await;
