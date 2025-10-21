@@ -137,7 +137,7 @@ async fn gatt_events_task<P: PacketPool>(
                             MEASUREMENT_CMD.signal(MeasurementCommand::Tare);
                         }
                         ControlOpcode::Unknown(code) => {
-                            debug_info(&format!("Unknown with code {:?}", code));
+                            debug_warn(&format!("Unknown with code {:?}", code));
                         }
                         _ => {}
                     }
